@@ -11,67 +11,37 @@ def load_image(image_path):
 
 # Helper function to convert image to YCbCr color space
 def convert_to_YCbCr(image):
-    # Convert the image to RGB if it's not already
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
     rgb_image = np.array(image)
-    transformation_matrix = np.array([
-    [1 / np.sqrt(3), 1 / np.sqrt(3), 1 / np.sqrt(3)],
-    [1 / np.sqrt(6), 0, -1 / np.sqrt(6)],
-    [1 / (3 * np.sqrt(2)), -2 / (3 * np.sqrt(2)), 1 / (3 * np.sqrt(2))]
-])
-    # Reshape the RGB image to a column vector
-    rgb_vector = rgb_image.reshape(-1, 3)
-    # Apply the transformation
-    ycc_matrix = np.dot(transformation_matrix, rgb_vector.T).T
-    # Reshape the result back to the original image shape
-    ycc_image = ycc_matrix.reshape(rgb_image.shape)
+    R = rgb_image[:, :, 0]
+    G = rgb_image[:, :, 1]
+    B = rgb_image[:, :, 2]
 
-    # Extract the transformed Y, C1, and C2 components
-    Y_matrix = ycc_image[:, :, 0]
-    C1_matrix = ycc_image[:, :, 1]
-    C2_matrix = ycc_image[:, :, 2]
+    Y = 0.299 * R + 0.587 * G + 0.114 * B
+    Cb = -0.1687 * R - 0.3313 * G + 0.5 * B + 128
+    Cr = 0.5 * R - 0.4187 * G - 0.0813 * B + 128
 
-    # Normalize the Y, C1, and C2 matrices for displaying as images
-    Y_normalized = ((Y_matrix - np.min(Y_matrix)) / (np.max(Y_matrix) - np.min(Y_matrix))) * 255
-    C1_normalized = ((C1_matrix - np.min(C1_matrix)) / (np.max(C1_matrix) - np.min(C1_matrix))) * 255
-    C2_normalized = ((C2_matrix - np.min(C2_matrix)) / (np.max(C2_matrix) - np.min(C2_matrix))) * 255
+    Y = np.clip(Y, 0, 255).astype(np.uint8)
+    Cb = np.clip(Cb, 0, 255).astype(np.uint8)
+    Cr = np.clip(Cr, 0, 255).astype(np.uint8)
 
-    # Convert the normalized matrices to uint8 for image display
-    Y_image = Y_normalized.astype(np.uint8)
-    C1_image = C1_normalized.astype(np.uint8)
-    C2_image = C2_normalized.astype(np.uint8)
-    
-    
-    return Y_image,C1_image,C2_image
+    return Y, Cb, Cr
 
 # Helper function to convert YCbCr back to RGB
-def convert_to_RGB(y, cb, cr):
-    transformation_matrix = np.array([
-    [1 / np.sqrt(3), 1 / np.sqrt(3), 1 / np.sqrt(3)],
-    [1 / np.sqrt(6), 0, -1 / np.sqrt(6)],
-    [1 / (3 * np.sqrt(2)), -2 / (3 * np.sqrt(2)), 1 / (3 * np.sqrt(2))]
-])
-    # Inverse of the transformation matrix
-    inverse_transformation_matrix = np.linalg.inv(transformation_matrix)
+def convert_to_RGB(Y, Cb, Cr):
+    Y = Y.astype(float)
+    Cb = Cb.astype(float)
+    Cr = Cr.astype(float)
 
-    # Assuming Y_image, C1_image, C2_image are the matrices we obtained earlier and have the same shape
-    # Recombine the Y, C1, and C2 channels into a single matrix
-    ycc_combined = np.stack((y,cb,cr), axis=-1)
+    R = Y + 1.402 * (Cr - 128)
+    G = Y - 0.344136 * (Cb - 128) - 0.714136 * (Cr - 128)
+    B = Y + 1.772 * (Cb - 128)
 
-    # Reshape the combined YC1C2 image to a column vector for matrix multiplication
-    ycc_vector = ycc_combined.reshape(-1, 3)
+    R = np.clip(R, 0, 255).astype(np.uint8)
+    G = np.clip(G, 0, 255).astype(np.uint8)
+    B = np.clip(B, 0, 255).astype(np.uint8)
 
-    # Apply the inverse transformation
-    rgb_matrix = np.dot(inverse_transformation_matrix, ycc_vector.T).T
-
-    # Reshape the result back to the original image shape
-    rgb_reconstructed = rgb_matrix.reshape(y.shape[0], y.shape[1], 3)
-
-    # Normalize and convert the values to uint8 if necessary
-    rgb_reconstructed_normalized = np.clip(rgb_reconstructed, 0, 255).astype(np.uint8)
-    # Convert the NumPy array to an image
-    reconstructed_image = Image.fromarray(rgb_reconstructed_normalized)
+    rgb_reconstructed = np.stack((R, G, B), axis=-1)
+    reconstructed_image = Image.fromarray(rgb_reconstructed)
 
     # Display the reconstructed image
     plt.imshow(reconstructed_image)
@@ -96,158 +66,279 @@ def compute_2d_dct(image_matrix):
 def compute_2d_idct(dct_matrix):
     return idct(idct(dct_matrix.T, norm='ortho').T, norm='ortho')
 
-def threshold_dct(dct_matrix, threshold):
-    print("thresholding")
-    return np.where(np.abs(dct_matrix) > threshold, dct_matrix, 0)
+def threshold_dct(dct_coefficients, threshold):
+    thresholded_dct = np.copy(dct_coefficients)
+    for k in range(dct_coefficients.shape[0]):
+        for l in range(dct_coefficients.shape[1]):
+            if k == 0 and l == 0:
+                continue
+            else:
+                if dct_coefficients[k, l] > threshold:
+                    thresholded_dct[k, l] -= threshold
+                elif dct_coefficients[k, l] < -threshold:
+                    thresholded_dct[k, l] += threshold
+                elif np.abs(dct_coefficients[k, l]) <= threshold:
+                    thresholded_dct[k, l] = 0
+    return thresholded_dct
 
-def compute_alpha(dct_matrix):
-    print("alpha!")
-    # Compute alpha based on the energy of the DCT coefficients
-    # Placeholder for actual implementation
-    N = len(dct_matrix)  # Assuming a square DCT coefficient matrix
-    F_00 = dct_matrix[0, 0]  # DC component
-    sum_of_absolute_values = np.sum(np.abs(dct_matrix))  # Sum of absolute values excluding DC
-    E = (sum_of_absolute_values  - np.abs(F_00) ) / ((N * N) - 1)  # Compute E
+def compute_alpha(dct_coefficients):
+    N = len(dct_coefficients)
+    F_00 = dct_coefficients[0, 0]
+    sum_of_absolute_values = np.sum(np.abs(dct_coefficients))
+    E = (sum_of_absolute_values - np.abs(F_00)) / ((N * N) - 1)
     En = E * -0.0052 + 1
-    alpha = (1 - 0.0052 * E) * En
-    
-    return alpha
+    Alpha = (1 - 0.0052 * E) * En
+    return Alpha
 
-
-
-def calculate_Eh_Ev(dct_matrix):
-    print("ewan")
-    rows, cols = dct_matrix.shape  # Adjusting for non-square matrices
+def calculate_Eh_Ev(dct_coefficients):
+    rows, cols = dct_coefficients.shape
     Eh = 0
     Ev = 0
-
     for k in range(rows):
         for l in range(cols):
             Wh = 1 if k > l else 0
             Wv = 1 if k < l else 0
-            Eh += Wh * abs(dct_matrix[k, l])
-            Ev += Wv * abs(dct_matrix[k, l])
-
+            Eh += Wh * abs(dct_coefficients[k, l])
+            Ev += Wv * abs(dct_coefficients[k, l])
     return Eh, Ev
 
-def calculate_THV(dct_matrix,rows,cols):
-    print("letsgoo")
+def calculate_THV(rows, cols, Eh, Ev):
     T = np.zeros((rows, cols))
     H = np.zeros((rows, cols))
     V = np.zeros((rows, cols))
-    Eh, Ev = calculate_Eh_Ev(dct_matrix)
-    
     for k in range(rows):
         for l in range(cols):
             k_val = k if k != 0 else 1
             l_val = l if l != 0 else 1
-            H[k, l] = 1.25 - (np.arctan(l_val / k_val) * (180 / np.pi)) / 90
-            V[k, l] = 0.25 + (np.arctan(k_val / l_val) * (180 / np.pi)) / 90
+            H[k, l] = 1.25 - (np.arctan(l_val / k_val) * 180 / np.pi) / 90
+            V[k, l] = 0.25 + (np.arctan(k_val / l_val) * 180 / np.pi) / 90
             T[k, l] = (Eh / (Eh + Ev)) * H[k, l] + (Ev / (Eh + Ev)) * V[k, l]
+    return T, H, V  
+
+def calculateTKL(dct_coefficients, threshold):
+    rows, cols = dct_coefficients.shape
+    Eh, Ev = calculate_Eh_Ev(dct_coefficients)
     
-    return T
-
-
-
-def adaptive_attenuator(dct_matrix, alpha):
-    print("malapit na")
-    rows, cols = dct_matrix.shape
-    T = calculate_THV(dct_matrix,rows,cols)
-    # Apply the adaptive attenuation on the DCT coefficients
-    # Placeholder for actual implementation
-    attenuated_dct_matrix = (1 - alpha) * T * dct_matrix
-    return attenuated_dct_matrix
-
-def calculate_delta(dct_matrix):
-    print("closer!!")
-    DC_component = dct_matrix[0, 0]
-    delta_DC= np.zeros_like(dct_matrix)
-    delta_AC = np.zeros_like(dct_matrix)
-    N = dct_matrix.shape[0]
+    # Compute Th and T based on their respective functions
+    T , H, V = calculate_THV(rows, cols, Eh, Ev)
+    Th = threshold_dct(dct_coefficients, threshold)  # Threshold value set to 20, modify if needed
     
+    alpha = compute_alpha(dct_coefficients)
+    F_doubleprime = np.copy(dct_coefficients)
+    
+    # Preserve the DC coefficient (0, 0)
+    F_doubleprime[0, 0] = dct_coefficients[0, 0]
+    
+    # Modify AC coefficients according to equation (11)
+    for k in range(rows):
+        for l in range(cols):
+            if (k, l) != (0, 0):  # Skip the DC coefficient
+                F_doubleprime[k, l] = (1 - alpha) * Th[k, l] * T[k, l]
+    
+    return F_doubleprime
+
+# Function to calculate ΔDC(x, y, i, j) for all i, j given a DCT coefficient matrix
+def calculate_DeltaDC(F_xy, N):
+    # Initialize matrix for ΔDC
+    DeltaDC = np.zeros((N, N))
+
+    # DC component is at the (0, 0) position, subtract it from all positions
     for i in range(N):
         for j in range(N):
-            if i == 0 and j == 0:
-                continue  # Skip the DC component itself
-            delta_DC[i, j] = DC_component - dct_matrix[i, j]
-    for x in range(N):
-        for y in range(N):
-            ac_sum = 0
-            for i in range(N):
-                for j in range(N):
-                    if i == 0 and j == 0:
-                        continue  # Skip the DC component
-                    ac_sum += dct_matrix[i, j] - dct_matrix[(x-i) % N, (y-j) % N]
-    
-    # Subtract ΔDC(x, y, i, j) from the accumulated differences
-    delta_AC -= delta_DC
-    
-    return delta_AC
-    
-  
+            DeltaDC[i, j] = F_xy[0, 0] - F_xy[i, j]
+
+    return DeltaDC
+
+# Function to calculate ΔAC(x, y, i, j) for all i, j given a DCT coefficient matrix
+def calculate_DeltaAC(F_xy, N):
+    # Initialize matrix for ΔAC
+    DeltaAC = np.zeros((N, N))
+
+    # Accumulate differences from all AC coefficients
+    for i in range(N):
+        for j in range(N):
+            if (i, j) != (0, 0):  # Skip the DC component
+                DeltaAC[i, j] = np.sum(np.abs(F_xy - F_xy[i, j]))
+
+    # Subtract ΔDC(x, y, i, j) from ΔAC(x, y, i, j) as per the equation
+    DeltaDC = calculate_DeltaDC(F_xy, N)
+    DeltaAC -= DeltaDC
+
+    return DeltaAC
+
+# Function to calculate Δ(x, y, i, j) for all i, j given a DCT coefficient matrix
+def calculate_Delta(F_xy):
+    N = 100
+    # Calculate ΔDC and ΔAC
+    DeltaDC = calculate_DeltaDC(F_xy, N)
+    DeltaAC = calculate_DeltaAC(F_xy, N)
+
+    # Calculate Δ using the equation
+    Delta = (1 / (N**2)) * (DeltaDC + DeltaAC)
+
+    return Delta
+
 
 def similar_patch_blender(dct_matrix, delta, sigma1, sigma2):
-    print("getting there")
-    M = dct_matrix.shape[0]
+    M, N = dct_matrix.shape  # Assuming a square DCT block for simplicity
     blended_dct_matrix = np.zeros_like(dct_matrix)
 
-    for k in range(M):
-        for l in range(M):
-            numerator_sum = 0
-            denominator_sum = 0
+    # Adjust the range if M is even, otherwise adjust as needed for odd M
+    i_range = range(-M//2 + 1, M//2) if M % 2 == 0 else range(-M//2, M//2 + 1)
+    j_range = range(-N//2 + 1, N//2) if N % 2 == 0 else range(-N//2, N//2 + 1)
 
-            for i in range(-M//2, M//2):
-                for j in range(-M//2, M//2):
-                    # Periodic boundary conditions
+    # Iterating over each element in the DCT matrix
+    for k in range(M):
+        for l in range(N):
+            numerator_sum = 0.0
+            denominator_sum = 0.0
+            
+            # Iterating over the window centered around the current element
+            for i in i_range:
+                for j in j_range:
+                    # Ensuring periodic boundary conditions
                     periodic_i = (i + k) % M
-                    periodic_j = (j + l) % M
+                    periodic_j = (j + l) % N
                     
-                    weight_spatial = np.exp(-(i**2 + j**2) / (2 * sigma1**2))
-                    weight_delta = np.exp(-delta[periodic_i, periodic_j]**2 / (2 * sigma2**2))
+                    # Calculating the spatial weight
+                    weight_spatial = np.exp(-((i**2 + j**2) / (2 * sigma1**2)))
+                    # Calculating the delta weight
+                    weight_delta = np.exp(-((delta[periodic_i, periodic_j])**2 / (2 * sigma2**2)))
                     
+                    # Adding to the numerator and denominator sums
                     numerator_sum += dct_matrix[periodic_i, periodic_j] * weight_spatial * weight_delta
                     denominator_sum += weight_spatial * weight_delta
-
-            # Update the DCT coefficient at position (k, l)
+            
+            # Computing the blended DCT coefficient
             blended_dct_matrix[k, l] = numerator_sum / denominator_sum if denominator_sum != 0 else 0
+    
     return blended_dct_matrix
+
+def combine_channels(y_channel, cb_channel, cr_channel):
+    # Apply any necessary post-processing or adjustments to the channels
+    # For example, you might want to clip the channels to the valid range [0, 255]
+    y_channel = np.clip(y_channel, 0, 255).astype(np.uint8)
+    cb_channel = np.clip(cb_channel, 0, 255).astype(np.uint8)
+    cr_channel = np.clip(cr_channel, 0, 255).astype(np.uint8)
+
+    # Combine the channels (you can experiment with different blending techniques)
+    combined_image = np.stack((y_channel, cb_channel, cr_channel), axis=-1)
+
+    # Convert the combined image back to RGB
+    rgb_combined = Image.fromarray(combined_image, mode='YCbCr').convert('RGB')
+
+    return rgb_combined
+
 
 def denoise_image(image_path, threshold, sigma1, sigma2):
     # Load image and convert to YCbCr or any other color space if needed
     image = load_image(image_path)
     y, cb, cr = convert_to_YCbCr(image)
-    
+    rgb_image = combine_channels(y, cb, cr)
+    print(rgb_image)
+    plt.imshow(rgb_image)
+    plt.title("Reconstructed RGB Image")
+    plt.axis('off')
+    plt.show()
+    # plt.imshow(y)
+    # plt.title("Reconstructed RGB Image")
+    # plt.axis('off')
+    # plt.show()
+    # plt.imshow(cb)
+    # plt.title("Reconstructed RGB Image")
+    # plt.axis('off')
+    # plt.show()
+    # plt.imshow(cr)
+    # plt.title("Reconstructed RGB Image")
+    # plt.axis('off')
+    # plt.show()
+    # rgb_image = convert_to_RGB(y, cb, cr)
     # # Apply filters to the Y channel if needed
     # y_filtered = apply_filters(y)
     
     # Perform 2D DCT
     dct_matrix = compute_2d_dct(y)
+    dct_attenuated = calculateTKL(dct_matrix, 4)
+    idct_matrix = compute_2d_idct(dct_attenuated)
     
-    # Thresholding
-    dct_thresholded = threshold_dct(dct_matrix, threshold)
+    dct_matrix = compute_2d_dct(idct_matrix )
+    dct_attenuated = calculateTKL(dct_matrix, 2)
+    idct_matrix = compute_2d_idct(dct_attenuated)
     
-    # Compute alpha
-    alpha = compute_alpha(dct_thresholded)
+    dct_matrix = compute_2d_dct(idct_matrix )
+    dct_attenuated = calculateTKL(dct_matrix, 1)
+    y= compute_2d_idct(dct_attenuated)
+    plt.imshow(y)
+    plt.title("Reconstructed RGB Image")
+    plt.axis('off')
+    plt.show()
     
-    # Apply adaptive attenuation
-    dct_attenuated = adaptive_attenuator(dct_thresholded, alpha)
     
-    # Calculate delta for blending
-    delta = calculate_delta(dct_attenuated)
     
-    # Blend similar patches
-    dct_blended = similar_patch_blender(dct_attenuated, delta, sigma1, sigma2)
+    dct_matrix = compute_2d_dct(cb)
+    dct_attenuated = calculateTKL(dct_matrix, 4)
+    idct_matrix = compute_2d_idct(dct_attenuated)
     
-    # Perform 2D iDCT
-    idct_matrix = compute_2d_idct(dct_blended)
+    dct_matrix = compute_2d_dct(idct_matrix )
+    dct_attenuated = calculateTKL(dct_matrix, 2)
+    idct_matrix = compute_2d_idct(dct_attenuated)
     
-    # # Post-process if needed and convert back to RGB
-    # denoised_image = post_process(idct_matrix)
-    rgb_image = convert_to_RGB(idct_matrix, cb, cr)
+    dct_matrix = compute_2d_dct(idct_matrix )
+    dct_attenuated = calculateTKL(dct_matrix, 1)
+    cb= compute_2d_idct(dct_attenuated)
+    plt.imshow(cb)
+    plt.title("Reconstructed RGB Image")
+    plt.axis('off')
+    plt.show()
+    
+    dct_matrix = compute_2d_dct(cr)
+    dct_attenuated = calculateTKL(dct_matrix, 4)
+    idct_matrix = compute_2d_idct(dct_attenuated)
+    
+    dct_matrix = compute_2d_dct(idct_matrix )
+    dct_attenuated = calculateTKL(dct_matrix, 2)
+    idct_matrix = compute_2d_idct(dct_attenuated)
+    
+    dct_matrix = compute_2d_dct(idct_matrix )
+    dct_attenuated = calculateTKL(dct_matrix, 1)
+    cr= compute_2d_idct(dct_attenuated)
+    plt.imshow(cr)
+    plt.title("Reconstructed RGB Image")
+    plt.axis('off')
+    plt.show()
+    
+    # delta = calculate_Delta(dct_attenuated)
+    # dct_blended = similar_patch_blender(dct_attenuated, delta, sigma1, sigma2)
+    # idct_matrix = compute_2d_idct(dct_blended)
+    # plt.imshow(idct_matrix)
+    # plt.title("Reconstructed RGB Image")
+    # plt.axis('off')
+    # plt.show()
+    
+    
+    
+    rgb_image = combine_channels(y, cb, cr)
+    print(rgb_image)
+    plt.imshow(rgb_image)
+    plt.title("Reconstructed RGB Image")
+    plt.axis('off')
+    plt.show()
+    # # Calculate delta for blending
+    # delta = calculate_delta(dct_attenuated)
+    
+    # # Blend similar patches
+    # dct_blended = similar_patch_blender(dct_attenuated, delta, sigma1, sigma2)
+    
+    # # Perform 2D iDCT
+    # idct_matrix = compute_2d_idct(dct_blended)
+    
+    # # # Post-process if needed and convert back to RGB
+    # # denoised_image = post_process(idct_matrix)
+    # rgb_image = convert_to_RGB(idct_matrix, cb, cr)   
     
     return rgb_image
 
 
 
 # Use the function
-denoised_image = denoise_image('D:/Users/Pictures/thesis pictures/small.png', threshold=1, sigma1=4, sigma2=10)
+denoised_image = denoise_image('D:/Users/Pictures/thesis pictures/small.png', threshold=500, sigma1=20, sigma2=70)
