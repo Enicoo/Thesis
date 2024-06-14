@@ -20,3 +20,13 @@ import matplotlib.pyplot as plt
 from skimage.color import rgb2gray
 import os
 ```
+## Running the code
+Define the following parameter values 
+``` sh
+# Define parameter combinations
+parameter_combinations = [
+    (128, 512), (256, 512), (512, 512), (768, 512), (1024, 512), 
+    (512, 128), (512, 256), (512, 512), (512, 768), (512, 1024), (128, 1024), (256, 1024)
+]
+```
+The listed parameter combinations are the ones used in the paper. After initializing the parameter run the code.
