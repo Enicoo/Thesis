@@ -29,4 +29,4 @@ parameter_combinations = [
     (512, 128), (512, 256), (512, 512), (512, 768), (512, 1024), (128, 1024), (256, 1024)
 ]
 ```
-The listed parameter combinations are the ones used in the paper. After initializing the parameter run the code.
+The listed parameter combinations are the ones used in the paper. After initializing the parameter, run the code.
